@@ -1,0 +1,458 @@
+/* 
+     1. Importações e temas
+     2. Variáveis de personalização  <- comece por aqui para mudar o visual
+     3. Página e cabeçalho
+     4. Tabuleiro e casas
+     5. Animações
+     6. Mensagens, fim de jogo e toast
+
+/* ---------- 1. Importações e temas ---------- */
+
+@import "tailwindcss";
+@import "@fontsource-variable/outfit";
+
+/* O Tailwind só gera as classes que encontra no código-fonte. */
+@source "./**/*.elm";
+
+@plugin "daisyui" {
+  themes: light --default, dark;
+}
+
+
+/* ---------- 2. Variáveis de personalização ---------- */
+
+:root {
+  --fonte: "Outfit Variable", ui-sans-serif, system-ui, sans-serif;
+  --cor-certa: #2f9e6a;
+  --cor-presente: #d4a017;
+  --cor-ausente: #7b8494;
+  --cor-texto-casa: #ffffff;
+  --cor-elm: #1a86c7;           /* o "elm" do nome do jogo*/
+  --fundo-1: #eef2ff;
+  --fundo-2: #fdf2f8;
+  --borda-casa: color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  --borda-preenchida: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  --tamanho-casa: clamp(3.2rem, 15vw, 4.25rem);
+  --raio-casa: 0.6rem;
+  --velocidade: 1;
+}
+
+:root:has(.theme-controller:checked) {
+  --cor-certa: #3fbf82;
+  --cor-presente: #e6b422;
+  --cor-ausente: #4b5262;
+  --cor-elm: #2f9fdc;
+
+  --fundo-1: #0f172a;
+  --fundo-2: #1e1b2e;
+}
+
+
+/* ---------- 3. Página e cabeçalho ---------- */
+
+@layer components {
+  .app {
+    @apply flex min-h-screen flex-col items-center text-base-content;
+    font-family: var(--fonte);
+    background:
+      radial-gradient(60rem 30rem at 0% 0%, color-mix(in oklab, var(--cor-certa) 14%, transparent), transparent),
+      radial-gradient(50rem 30rem at 100% 100%, color-mix(in oklab, var(--cor-presente) 14%, transparent), transparent),
+      linear-gradient(160deg, var(--fundo-1), var(--fundo-2));
+  }
+
+  .app-header {
+    @apply flex w-full max-w-md items-center justify-between px-4 pt-6 pb-2;
+  }
+
+  .logo {
+    @apply flex items-center gap-1;
+  }
+
+  /* T e O em cinza; E, L e M (de Elm) em azul. */
+  .logo-tile {
+    @apply flex size-10 items-center justify-center rounded-lg text-2xl font-extrabold;
+    --cor-casa: var(--cor-ausente);
+    color: var(--cor-texto-casa);
+    box-shadow: 0 3px 0 color-mix(in oklab, black 22%, transparent);
+  }
+
+  .logo-tile--elm {
+    --cor-casa: var(--cor-elm);
+  }
+
+  .theme-toggle {
+    @apply swap swap-rotate btn btn-ghost btn-circle text-xl;
+  }
+
+  .app-main {
+    @apply flex w-full max-w-md flex-1 flex-col items-center gap-4 px-4 py-4 lg:max-w-5xl;
+  }
+
+  /* Tabuleiro no meio e regras à direita. Em tela estreita,
+     o painel desce para baixo do tabuleiro. */
+  .mesa {
+    @apply flex w-full flex-col items-center gap-4;
+  }
+
+  @media (min-width: 64rem) {
+    .mesa {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: start;
+      gap: 1.5rem;
+    }
+    .mesa > .board  { grid-column: 2; grid-row: 1; }
+    .mesa > .keyboard,
+    .mesa > .game-over { grid-column: 2; grid-row: 2; }
+    .mesa > .regras { grid-column: 3; grid-row: 1 / span 2; justify-self: start; }
+  }
+
+  /* ---------- Teclado virtual ----------*/
+  .keyboard {
+    @apply flex w-full max-w-md flex-col gap-1.5 select-none;
+  }
+
+  .keyboard-row {
+    @apply flex justify-center gap-1.5;
+  }
+
+  .key {
+    @apply flex h-12 flex-1 cursor-pointer items-center justify-center rounded-lg text-sm font-bold uppercase sm:h-14 sm:text-base;
+    max-width: 2.6rem;
+    background: color-mix(in oklab, var(--color-base-content) 12%, var(--color-base-100));
+    color: var(--color-base-content);
+    box-shadow: 0 2px 0 color-mix(in oklab, black 18%, transparent);
+    transition: background-color calc(200ms * var(--velocidade)) ease calc(1000ms * var(--velocidade)),
+                color calc(200ms * var(--velocidade)) ease calc(1000ms * var(--velocidade)),
+                opacity calc(200ms * var(--velocidade)) ease calc(1000ms * var(--velocidade)),
+                transform 80ms ease;
+  }
+
+  .key:active {
+    transform: translateY(2px);
+    box-shadow: none;
+  }
+
+  .key--larga {
+    @apply text-xs sm:text-sm;
+    flex: 1.6;
+    max-width: 4.2rem;
+  }
+
+  .key--certa,
+  .key--presente {
+    background: var(--cor-casa);
+    color: var(--cor-texto-casa);
+  }
+
+  .key--certa    { --cor-casa: var(--cor-certa); }
+  .key--presente { --cor-casa: var(--cor-presente); }
+
+  .key--ausente {
+    opacity: 0.3;
+    box-shadow: none;
+  }
+
+  .regras {
+    @apply flex w-full max-w-md flex-col gap-2 rounded-2xl p-4 text-sm lg:max-w-64;
+    background: color-mix(in oklab, var(--color-base-100) 55%, transparent);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 10px 30px -12px color-mix(in oklab, black 35%, transparent);
+  }
+
+  .regras-titulo {
+    @apply text-xs font-bold tracking-widest uppercase opacity-60;
+  }
+
+  .regras-titulo:not(:first-child) {
+    @apply mt-2;
+  }
+
+  .regras-lista {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .regras-cor,
+  .regras-palavra {
+    @apply flex items-center gap-2;
+  }
+
+  .regras-casa {
+    @apply inline-block size-4 shrink-0 rounded;
+  }
+
+  .regras-sinal {
+    @apply w-4 shrink-0 text-center font-bold;
+    color: var(--cor-certa);
+  }
+
+  .regras-sinal--nao {
+    color: var(--color-error);
+  }
+
+  .regras-exemplo {
+    @apply block text-xs opacity-60;
+  }
+
+  .game-status {
+    @apply text-sm font-semibold tracking-widest uppercase opacity-60;
+  }
+
+  .app-footer {
+    @apply pb-6 text-sm opacity-60;
+  }
+
+  .app-footer kbd {
+    @apply kbd kbd-sm;
+  }
+
+  .loading-screen {
+    @apply flex flex-col items-center gap-3 py-16 opacity-70;
+  }
+
+
+  /* ---------- 4. Tabuleiro e casas ---------- */
+
+  .board {
+    @apply grid gap-2 rounded-2xl p-3;
+    background: color-mix(in oklab, var(--color-base-100) 55%, transparent);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 10px 30px -12px color-mix(in oklab, black 35%, transparent);
+  }
+
+  .row {
+    @apply grid grid-cols-5 gap-2;
+  }
+
+  .tile {
+    @apply flex items-center justify-center text-3xl font-bold uppercase select-none;
+    width: var(--tamanho-casa);
+    height: var(--tamanho-casa);
+    border-radius: var(--raio-casa);
+    border: 2px solid var(--borda-casa);
+    background: var(--color-base-100);
+  }
+
+  .tile--preenchida {
+    border-color: var(--borda-preenchida);
+    animation: pulo-letra calc(120ms * var(--velocidade)) ease-out;
+  }
+
+  .tile--certa    { --cor-casa: var(--cor-certa); }
+  .tile--presente { --cor-casa: var(--cor-presente); }
+  .tile--ausente  { --cor-casa: var(--cor-ausente); }
+
+  .logo-tile,
+  .tile--revelada {
+    background: var(--cor-casa);
+    border-color: var(--cor-casa);
+    color: var(--cor-texto-casa);
+  }
+
+
+  /* ---------- 6. Mensagens e fim de jogo ---------- */
+
+  .message {
+    @apply alert w-full max-w-md shadow-sm;
+  }
+
+  .message--error {
+    @apply alert-error;
+  }
+
+  .message-close {
+    @apply btn btn-ghost btn-sm btn-circle ml-auto;
+  }
+
+  .game-over {
+    @apply flex w-full max-w-md flex-col items-center gap-2 rounded-2xl bg-base-100 p-5 text-center shadow-lg;
+    /* Só aparece depois que as letras terminam de virar. */
+    animation: surgir calc(400ms * var(--velocidade)) ease-out calc(900ms * var(--velocidade)) both;
+  }
+
+  .game-over-title {
+    @apply text-2xl font-extrabold;
+  }
+
+  .segredo {
+    @apply font-extrabold tracking-widest;
+    color: var(--cor-certa);
+  }
+
+  .btn-novo {
+    @apply btn btn-primary mt-2 rounded-full px-8;
+  }
+
+
+}
+
+
+/* ---------- Toast de palavra desconhecida ---------- */
+
+.toast-area {
+  position: fixed;
+  inset: 1rem 0 auto;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  padding-inline: 1rem;
+  pointer-events: none;        /* só o toast recebe cliques, não a faixa toda */
+}
+
+.toast-recusada {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: min(100%, 26rem);
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  border-radius: 1rem;
+  background: var(--color-error);
+  color: var(--color-error-content);
+  box-shadow: 0 12px 28px -10px color-mix(in oklab, var(--color-error) 70%, black);
+  pointer-events: auto;
+  animation: descer-toast calc(250ms * var(--velocidade)) cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+/* Fase de saída: o toast sobe e some. A duração (250ms) tem que ser a mesma
+   de `duracaoDaSaida`, em Main.elm: é quando o Elm tira o toast da tela.
+   `forwards` segura o último quadro, para o toast não "piscar" de volta
+   antes de ser removido. */
+.toast-recusada--saindo {
+  animation: subir-toast calc(250ms * var(--velocidade)) ease-in forwards;
+}
+
+.toast-icon {
+  display: flex;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-weight: 900;
+  background: color-mix(in oklab, var(--color-error-content) 20%, transparent);
+}
+
+.toast-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.toast-text strong {
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.toast-close {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.toast-close:hover {
+  opacity: 1;
+  background: color-mix(in oklab, var(--color-error-content) 15%, transparent);
+}
+
+
+/* ---------- 5. Animações ---------- */
+
+@keyframes pulo-letra {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* Ao conferir, cada casa gira e mostra a cor no meio do giro. Enquanto
+   espera a sua vez (o atraso), a casa fica com a aparência de não
+   conferida: é o que o `both` faz com o quadro 0%. */
+@keyframes virar {
+  0% {
+    transform: rotateX(0);
+    background: var(--color-base-100);
+    border-color: var(--borda-preenchida);
+    color: var(--color-base-content);
+  }
+  49% {
+    transform: rotateX(90deg);
+    background: var(--color-base-100);
+    border-color: var(--borda-preenchida);
+    color: var(--color-base-content);
+  }
+  50%, 100% {
+    background: var(--cor-casa);
+    border-color: var(--cor-casa);
+    color: var(--cor-texto-casa);
+  }
+  50%  { transform: rotateX(90deg); }
+  100% { transform: rotateX(0); }
+}
+
+.tile--revelada {
+  animation: virar calc(500ms * var(--velocidade)) ease-in-out
+    calc(var(--i) * 160ms * var(--velocidade)) both;
+}
+
+/* Na vitória, depois de virar, as casas pulam uma de cada vez. A segunda
+   animação não usa `both`: se usasse, ela seguraria o `transform` durante a
+   espera e estragaria o giro. */
+@keyframes comemorar {
+  0%, 100% { transform: translateY(0); }
+  40%      { transform: translateY(-30%); }
+  70%      { transform: translateY(5%); }
+}
+
+.row--vitoria .tile--revelada {
+  animation:
+    virar calc(500ms * var(--velocidade)) ease-in-out calc(var(--i) * 160ms * var(--velocidade)) both,
+    comemorar calc(500ms * var(--velocidade)) ease-out calc((1100ms + var(--i) * 100ms) * var(--velocidade));
+}
+
+/* Enquanto o servidor confere, a linha "respira". */
+@keyframes respirar {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+.row--conferindo {
+  animation: respirar calc(700ms * var(--velocidade)) ease-in-out infinite;
+}
+
+/* Palavra recusada: a linha treme. */
+@keyframes tremer {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-8px); }
+  40%, 60% { transform: translateX(8px); }
+}
+
+.row--tremendo {
+  animation: tremer calc(500ms * var(--velocidade)) ease-in-out;
+}
+
+@keyframes surgir {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes descer-toast {
+  from { opacity: 0; transform: translateY(-120%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes subir-toast {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-120%) scale(0.95); }
+}
+
+/* Quem pede menos movimento no sistema operacional fica sem animações. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
