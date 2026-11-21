@@ -66,15 +66,6 @@ Pronto e testado:
       virtual colorido, que também serve no celular (Elm)
 - [x] painel de regras ao lado do tabuleiro
 
-Para o grupo fazer:
-
-- [ ] revisar as 1000 palavras de `palavras.pl` (e rodar
-      `gerar_aceitas.py` de novo depois de mudá-las)
-- [ ] modo difícil: cada tentativa precisa respeitar as cores já vistas
-- [ ] modo adversário (o remix): o Prolog troca a palavra secreta para a
-      que deixa mais palavras possíveis
-- [ ] preencher `RELATORIO.md`
-
 ## Requisitos
 
 - [SWI-Prolog](https://www.swi-prolog.org/Download.html) 9.2 ou mais novo,
