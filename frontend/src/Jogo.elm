@@ -1,12 +1,14 @@
 module Jogo exposing
-    ( Cor(..)
+    ( Contagem
     , Estado(..)
     , Jogo
+    , Marca(..)
     , Retorno
     , Tentativa
+    , acertou
+    , alternarMarca
     , apagar
     , conferir
-    , coresDoTeclado
     , digitar
     , jaTentada
     , maxTentativas
@@ -19,13 +21,16 @@ module Jogo exposing
 
 {-| Domínio do jogo: tipos e transições de estado.
 
-Este módulo é PURO: não faz HTTP nem HTML. Quem decide as cores de uma
-tentativa é o Prolog (pelo backend). Aqui só guardamos o que já aconteceu e
-controlamos o que o jogador pode fazer em cada momento.
+Este módulo é PURO: não faz HTTP nem HTML. Quem confere uma tentativa é o
+Prolog (pelo backend). Aqui só guardamos o que já aconteceu e controlamos o
+que o jogador pode fazer em cada momento.
+
+A regra do jogo: a cada tentativa, o jogador só fica sabendo QUANTAS letras
+estão no lugar certo, quantas estão em outro lugar e quantas não estão na
+palavra. Nunca quais. Por isso não existe aqui uma cor por letra: o
+navegador nem recebe essa informação.
 
 -}
-
-import Dict exposing (Dict)
 
 
 tamanhoPalavra : Int
@@ -35,33 +40,59 @@ tamanhoPalavra =
 
 maxTentativas : Int
 maxTentativas =
-    6
+    10
 
 
-type Cor
-    = Certa
-    | Presente
-    | Ausente
+{-| Quantas letras da tentativa caíram em cada cor: verde (`certas`),
+amarela (`presentes`) e vermelha (`ausentes`). As três somam sempre 5.
+-}
+type alias Contagem =
+    { certas : Int
+    , presentes : Int
+    , ausentes : Int
+    }
 
 
 {-| O que o servidor responde a uma tentativa: a palavra do jeito que é
-escrita (com acentos) e a cor de cada letra.
+escrita (com acentos) e a contagem das cores.
 -}
 type alias Retorno =
     { palavra : String
-    , cores : List Cor
+    , contagem : Contagem
     }
 
 
 {-| Uma tentativa já conferida. `digitada` é o que o jogador digitou (sem
-acentos, usado no teclado virtual); `exibida` é como a palavra aparece no
-tabuleiro.
+acentos, usado para recusar palavra repetida); `exibida` é como a palavra
+aparece no tabuleiro.
+
+`marcas` são as anotações do próprio jogador, uma por letra (veja `Marca`).
+Elas não vêm do servidor e não mudam nada no jogo: servem para o jogador
+organizar o raciocínio.
+
 -}
 type alias Tentativa =
     { digitada : String
     , exibida : String
-    , cores : List Cor
+    , contagem : Contagem
+    , marcas : List (Maybe Marca)
     }
+
+
+{-| A cor que o jogador escolheu para uma letra de uma tentativa, clicando
+nela: o palpite dele sobre aquela letra, não uma informação do jogo.
+-}
+type Marca
+    = Verde
+    | Amarela
+    | Vermelha
+
+
+{-| Acertou quando as 5 letras estão no lugar certo.
+-}
+acertou : Contagem -> Bool
+acertou contagem =
+    contagem.certas == tamanhoPalavra
 
 
 {-| Em que ponto da partida estamos.
@@ -158,10 +189,15 @@ registrar retorno jogo =
             let
                 tentativas =
                     jogo.tentativas
-                        ++ [ { digitada = digitada, exibida = retorno.palavra, cores = retorno.cores } ]
+                        ++ [ { digitada = digitada
+                             , exibida = retorno.palavra
+                             , contagem = retorno.contagem
+                             , marcas = List.repeat tamanhoPalavra Nothing
+                             }
+                           ]
 
                 estado =
-                    if List.all ((==) Certa) retorno.cores then
+                    if acertou retorno.contagem then
                         Venceu
 
                     else if List.length tentativas >= maxTentativas then
@@ -209,46 +245,45 @@ revelar segredo jogo =
 
 
 
--- TECLADO
+-- ANOTAÇÕES DO JOGADOR
 
 
-{-| A cor que cada tecla do teclado virtual deve ter: a "mais forte" que a
-letra já recebeu (Certa > Presente > Ausente). Letras nunca usadas ficam
-fora do dicionário. Usada pelo teclado virtual (`viewTeclado`, em Main.elm).
+{-| O jogador clicou na letra `posicao` da tentativa `indice`: a marca dela
+passa para a próxima da ordem verde, amarela, vermelha, sem marca.
 -}
-coresDoTeclado : Jogo -> Dict Char Cor
-coresDoTeclado jogo =
+alternarMarca : Int -> Int -> Jogo -> Jogo
+alternarMarca indice posicao jogo =
     let
-        letrasComCor tentativa =
-            List.map2 Tuple.pair (String.toList tentativa.digitada) tentativa.cores
+        naPosicao i transforma lista =
+            List.indexedMap
+                (\j x ->
+                    if j == i then
+                        transforma x
+
+                    else
+                        x
+                )
+                lista
     in
-    jogo.tentativas
-        |> List.concatMap letrasComCor
-        |> List.foldl (\( letra, cor ) -> Dict.update letra (Just << maisForte cor)) Dict.empty
+    { jogo
+        | tentativas =
+            naPosicao indice
+                (\tentativa -> { tentativa | marcas = naPosicao posicao proximaMarca tentativa.marcas })
+                jogo.tentativas
+    }
 
 
-maisForte : Cor -> Maybe Cor -> Cor
-maisForte nova anterior =
-    case anterior of
+proximaMarca : Maybe Marca -> Maybe Marca
+proximaMarca marca =
+    case marca of
         Nothing ->
-            nova
+            Just Verde
 
-        Just velha ->
-            if forca nova > forca velha then
-                nova
+        Just Verde ->
+            Just Amarela
 
-            else
-                velha
+        Just Amarela ->
+            Just Vermelha
 
-
-forca : Cor -> Int
-forca cor =
-    case cor of
-        Certa ->
-            3
-
-        Presente ->
-            2
-
-        Ausente ->
-            1
+        Just Vermelha ->
+            Nothing

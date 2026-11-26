@@ -14,12 +14,11 @@ TODO (grupo):
 import Api
 import Browser
 import Browser.Events
-import Dict
 import Html exposing (Html, aside, button, div, footer, h1, h2, header, input, label, li, main_, p, span, strong, text, ul)
 import Html.Attributes exposing (attribute, checked, class, classList, type_, value)
 import Html.Events exposing (onCheck, onClick, preventDefaultOn)
 import Html.Keyed
-import Jogo exposing (Cor(..), Estado(..), Jogo, Retorno, Tentativa)
+import Jogo exposing (Contagem, Estado(..), Jogo, Marca(..), Retorno, Tentativa)
 import Json.Decode as Decode exposing (Decoder)
 import Process
 import Task
@@ -142,6 +141,7 @@ type Msg
     | ToastRemovido Int
     | AvisoFechado
     | TemaTrocado Bool
+    | MarcaAlternada Int Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -245,6 +245,10 @@ update msg model =
 
         ( TemaTrocado escuro, _ ) ->
             ( { model | darkTheme = escuro }, Cmd.none )
+
+        -- O jogador clicou numa letra de uma tentativa já feita.
+        ( MarcaAlternada indice posicao, EmJogo jogo ) ->
+            ( { model | tela = EmJogo (Jogo.alternarMarca indice posicao jogo) }, Cmd.none )
 
         -- Mensagens que não fazem sentido na tela atual (por exemplo, uma
         -- tecla enquanto a palavra ainda está sendo sorteada) são ignoradas.
@@ -370,7 +374,7 @@ view model =
 
 {-| O nome do jogo, Telmo (Termo + Elm), desenhado como uma linha do
 tabuleiro. As letras de "elm" ganham uma cor só delas, que não é nenhuma das
-cores do retorno (verde, amarelo, cinza), para não parecer uma letra conferida.
+cores do retorno (verde, amarelo, vermelho), para não parecer uma letra conferida.
 -}
 viewLogo : Html msg
 viewLogo =
@@ -418,7 +422,7 @@ viewTela model =
                         viewFim jogo
 
                     _ ->
-                        viewTeclado jogo
+                        viewTeclado
                 , viewRegras
                 ]
             ]
@@ -482,7 +486,7 @@ viewTabuleiro { tremer, chaveAtual } jogo =
 
         feitas =
             List.indexedMap
-                (\i t -> ( "feita-" ++ String.fromInt i, viewTentativa (comemora i) t ))
+                (\i t -> ( "feita-" ++ String.fromInt i, viewTentativa i (comemora i) t ))
                 jogo.tentativas
 
         chave =
@@ -513,14 +517,14 @@ viewTabuleiro { tremer, chaveAtual } jogo =
 
 {-| As regras ficam sempre à vista, ao lado do tabuleiro (embaixo dele, em
 telas estreitas). As regras sobre quais palavras valem precisam bater com
-o filtro de backend/tools/gerar\_aceitas.py.
+a análise de backend/prolog/flexao.pl.
 -}
 viewRegras : Html msg
 viewRegras =
     let
         cor classe significado =
             li [ class "regras-cor" ]
-                [ span [ class ("regras-casa tile--revelada " ++ classe) ] []
+                [ span [ class ("regras-casa contagem-casa--" ++ classe) ] []
                 , text significado
                 ]
 
@@ -542,11 +546,14 @@ viewRegras =
     aside [ class "regras", attribute "aria-label" "Regras do jogo" ]
         [ h2 [ class "regras-titulo" ] [ text "Como jogar" ]
         , p [] [ text ("Descubra a palavra de 5 letras em " ++ String.fromInt Jogo.maxTentativas ++ " tentativas.") ]
+        , p [] [ text "A cada tentativa, o jogo mostra ao lado da linha quantas letras:" ]
         , ul [ class "regras-lista" ]
-            [ cor "tile--certa" "letra certa na posição correta"
-            , cor "tile--presente" "letra certa na posição errada"
-            , cor "tile--ausente" "letra não consta na palavra"
+            [ cor "certa" "estão na palavra, na posição certa"
+            , cor "presente" "estão na palavra, em outra posição"
+            , cor "ausente" "não estão na palavra"
             ]
+        , p [ class "regras-exemplo" ] [ text "Ele nunca diz quais letras são: só quantas. Ex.: PASTA, com segredo CASPA, mostra 3 · 1 · 1." ]
+        , p [ class "regras-dica" ] [ text "Dica: clique numa letra de uma tentativa feita para anotar o que você acha dela. Cada clique troca a cor: verde, amarelo, vermelho, sem cor." ]
         , h2 [ class "regras-titulo" ] [ text "Palavras que valem" ]
         , ul [ class "regras-lista" ]
             [ regra False "Plural" "casas, flores"
@@ -558,38 +565,100 @@ viewRegras =
         ]
 
 
-viewTentativa : Bool -> Tentativa -> Html Msg
-viewTentativa venceu tentativa =
-    div [ class "row", classList [ ( "row--vitoria", venceu ) ] ]
-        (List.indexedMap viewCasaColorida
-            (List.map2 Tuple.pair (String.toList tentativa.exibida) tentativa.cores)
-        )
+{-| Uma tentativa já conferida: as letras, sem cor nenhuma, e ao lado a
+contagem. As letras só ficam verdes quando o jogador acerta a palavra, e
+aí não há mais nada a esconder.
 
+A posição da casa vira a variável CSS `--i`, que o style.css usa para
+atrasar a animação de cada casa na vitória: as letras viram uma depois da
+outra.
 
-{-| A posição da casa vira a variável CSS `--i`, que o style.css usa para
-atrasar a animação de cada casa: as letras viram uma depois da outra.
 -}
-viewCasaColorida : Int -> ( Char, Cor ) -> Html Msg
-viewCasaColorida indice ( letra, cor ) =
-    div
-        [ class "tile tile--revelada"
-        , class (classeDaCor cor)
-        , attribute "style" ("--i: " ++ String.fromInt indice)
+viewTentativa : Int -> Bool -> Tentativa -> Html Msg
+viewTentativa indiceTentativa venceu tentativa =
+    let
+        casaVencedora posicao letra =
+            div
+                [ class "tile tile--revelada tile--certa"
+                , attribute "style" ("--i: " ++ String.fromInt posicao)
+                ]
+                [ text (String.fromChar (Char.toUpper letra)) ]
+
+        -- Clicar numa letra troca a anotação do jogador (verde, amarela,
+        -- vermelha, nenhuma). É só um rascunho dele: o jogo não confere.
+        casaAnotavel posicao ( letra, marca ) =
+            div
+                [ class ("tile tile--conferida " ++ classeDaMarca marca)
+                , attribute "role" "button"
+                , attribute "aria-label" ("Anotar a letra " ++ String.fromChar (Char.toUpper letra))
+                , attribute "title" "Clique para anotar: verde, amarelo, vermelho, sem cor"
+                , onClick (MarcaAlternada indiceTentativa posicao)
+                ]
+                [ text (String.fromChar (Char.toUpper letra)) ]
+
+        letras =
+            String.toList tentativa.exibida
+
+        casas =
+            if venceu then
+                List.indexedMap casaVencedora letras
+
+            else
+                List.indexedMap casaAnotavel (List.map2 Tuple.pair letras tentativa.marcas)
+    in
+    div [ class "linha" ]
+        [ div [ class "row", classList [ ( "row--vitoria", venceu ) ] ] casas
+        , viewContagem tentativa.contagem
         ]
-        [ text (String.fromChar (Char.toUpper letra)) ]
 
 
-classeDaCor : Cor -> String
-classeDaCor cor =
-    case cor of
-        Certa ->
-            "tile--certa"
+classeDaMarca : Maybe Marca -> String
+classeDaMarca marca =
+    case marca of
+        Just Verde ->
+            "tile--marca tile--certa"
 
-        Presente ->
-            "tile--presente"
+        Just Amarela ->
+            "tile--marca tile--presente"
 
-        Ausente ->
-            "tile--ausente"
+        Just Vermelha ->
+            "tile--marca tile--ausente"
+
+        Nothing ->
+            ""
+
+
+{-| Os três quadrados ao lado de uma tentativa: quantas letras estão no
+lugar certo (verde), em outro lugar (amarelo) e fora da palavra (vermelho).
+-}
+viewContagem : Contagem -> Html msg
+viewContagem { certas, presentes, ausentes } =
+    let
+        quadrado classe n =
+            div [ class ("contagem-casa contagem-casa--" ++ classe) ] [ text (String.fromInt n) ]
+
+        descricao =
+            String.fromInt certas
+                ++ " no lugar certo, "
+                ++ String.fromInt presentes
+                ++ " em outro lugar, "
+                ++ String.fromInt ausentes
+                ++ " fora da palavra"
+    in
+    div [ class "contagem", attribute "aria-label" descricao ]
+        [ quadrado "certa" certas
+        , quadrado "presente" presentes
+        , quadrado "ausente" ausentes
+        ]
+
+
+{-| O lugar da contagem numa linha ainda não conferida, para as linhas
+ficarem alinhadas.
+-}
+viewContagemVazia : Html msg
+viewContagemVazia =
+    div [ class "contagem", attribute "aria-hidden" "true" ]
+        (List.repeat 3 (div [ class "contagem-casa contagem-casa--vazia" ] []))
 
 
 {-| Uma linha ainda sem cores: a palavra que está sendo digitada (ou
@@ -610,18 +679,20 @@ viewDigitando { conferindo, tremendo } palavra =
                 Nothing ->
                     div [ class "tile" ] []
     in
-    div
-        [ class "row"
-        , classList [ ( "row--conferindo", conferindo ), ( "row--tremendo", tremendo ) ]
+    div [ class "linha" ]
+        [ div
+            [ class "row"
+            , classList [ ( "row--conferindo", conferindo ), ( "row--tremendo", tremendo ) ]
+            ]
+            (List.map casa letras)
+        , viewContagemVazia
         ]
-        (List.map casa letras)
 
 
 {-| Teclado virtual, no lugar do teclado físico (no celular, por exemplo).
-O teclado reflete o que já foi descoberto: cada tecla tem a cor mais forte
-que a letra já recebeu (`Jogo.coresDoTeclado`), e a letra que não está na
-palavra fica translúcida (`key--ausente`, em style.css). Quando o jogo acaba, o quadro de fim toma o lugar
-do teclado.
+As teclas não têm cor: colorir uma tecla diria se aquela letra está na
+palavra, e o jogo só informa quantidades. Quando o jogo acaba, o quadro de
+fim toma o lugar do teclado.
 
 As teclas reagem ao `mousedown` (que também dispara num toque na tela), e
 não ao clique, e cancelam o comportamento padrão do navegador. Assim o
@@ -629,12 +700,9 @@ botão não ganha foco: se ganhasse, um Enter do teclado físico apertaria de
 novo a última tecla clicada, além de conferir a palavra.
 
 -}
-viewTeclado : Jogo -> Html Msg
-viewTeclado jogo =
+viewTeclado : Html Msg
+viewTeclado =
     let
-        cores =
-            Jogo.coresDoTeclado jogo
-
         tecla classes rotulo nome msg =
             button
                 [ type_ "button"
@@ -645,22 +713,7 @@ viewTeclado jogo =
                 [ text rotulo ]
 
         letra c =
-            let
-                cor =
-                    case Dict.get c cores of
-                        Just Certa ->
-                            "key--certa"
-
-                        Just Presente ->
-                            "key--presente"
-
-                        Just Ausente ->
-                            "key--ausente"
-
-                        Nothing ->
-                            ""
-            in
-            tecla cor (String.fromChar (Char.toUpper c)) (String.fromChar c) (LetraDigitada c)
+            tecla "" (String.fromChar (Char.toUpper c)) (String.fromChar c) (LetraDigitada c)
 
         linha letras =
             div [ class "keyboard-row" ] (List.map letra (String.toList letras))

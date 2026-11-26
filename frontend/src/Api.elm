@@ -15,7 +15,7 @@ mensagem indicada, carregando um `Result Erro a`.
 -}
 
 import Http
-import Jogo exposing (Cor(..), Retorno)
+import Jogo exposing (Contagem, Retorno)
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 
@@ -92,30 +92,17 @@ retornoDecoder : Decoder Retorno
 retornoDecoder =
     Decode.map2 Retorno
         (Decode.field "palavra" Decode.string)
-        (Decode.field "cores" (Decode.list corDecoder))
+        (Decode.field "contagem" contagemDecoder)
 
 
-{-| A API manda as cores como texto ("certa", "presente", "ausente"). Um
-texto diferente faz o decoder FALHAR, em vez de virar uma cor qualquer.
+{-| A API manda só quantas letras caíram em cada cor, nunca quais.
 -}
-corDecoder : Decoder Cor
-corDecoder =
-    Decode.string
-        |> Decode.andThen
-            (\texto ->
-                case texto of
-                    "certa" ->
-                        Decode.succeed Certa
-
-                    "presente" ->
-                        Decode.succeed Presente
-
-                    "ausente" ->
-                        Decode.succeed Ausente
-
-                    _ ->
-                        Decode.fail ("cor desconhecida: " ++ texto)
-            )
+contagemDecoder : Decoder Contagem
+contagemDecoder =
+    Decode.map3 Contagem
+        (Decode.field "certas" Decode.int)
+        (Decode.field "presentes" Decode.int)
+        (Decode.field "ausentes" Decode.int)
 
 
 

@@ -25,14 +25,15 @@
   --fonte: "Outfit Variable", ui-sans-serif, system-ui, sans-serif;
   --cor-certa: #2f9e6a;
   --cor-presente: #d4a017;
-  --cor-ausente: #7b8494;
+  --cor-ausente: #c93c3c;       /* letras que não estão na palavra */
+  --cor-logo: #7b8494;          /* o T e o O do nome do jogo */
   --cor-texto-casa: #ffffff;
   --cor-elm: #1a86c7;           /* o "elm" do nome do jogo*/
   --fundo-1: #eef2ff;
   --fundo-2: #fdf2f8;
   --borda-casa: color-mix(in oklab, var(--color-base-content) 18%, transparent);
   --borda-preenchida: color-mix(in oklab, var(--color-base-content) 55%, transparent);
-  --tamanho-casa: clamp(3.2rem, 15vw, 4.25rem);
+  --tamanho-casa: clamp(2.2rem, 10vw, 2.6rem); /* 10 linhas precisam caber na tela */
   --raio-casa: 0.6rem;
   --velocidade: 1;
 }
@@ -40,7 +41,8 @@
 :root:has(.theme-controller:checked) {
   --cor-certa: #3fbf82;
   --cor-presente: #e6b422;
-  --cor-ausente: #4b5262;
+  --cor-ausente: #d14b4b;
+  --cor-logo: #4b5262;
   --cor-elm: #2f9fdc;
 
   --fundo-1: #0f172a;
@@ -71,7 +73,7 @@
   /* T e O em cinza; E, L e M (de Elm) em azul. */
   .logo-tile {
     @apply flex size-10 items-center justify-center rounded-lg text-2xl font-extrabold;
-    --cor-casa: var(--cor-ausente);
+    --cor-casa: var(--cor-logo);
     color: var(--cor-texto-casa);
     box-shadow: 0 3px 0 color-mix(in oklab, black 22%, transparent);
   }
@@ -122,10 +124,7 @@
     background: color-mix(in oklab, var(--color-base-content) 12%, var(--color-base-100));
     color: var(--color-base-content);
     box-shadow: 0 2px 0 color-mix(in oklab, black 18%, transparent);
-    transition: background-color calc(200ms * var(--velocidade)) ease calc(1000ms * var(--velocidade)),
-                color calc(200ms * var(--velocidade)) ease calc(1000ms * var(--velocidade)),
-                opacity calc(200ms * var(--velocidade)) ease calc(1000ms * var(--velocidade)),
-                transform 80ms ease;
+    transition: transform 80ms ease;
   }
 
   .key:active {
@@ -139,19 +138,7 @@
     max-width: 4.2rem;
   }
 
-  .key--certa,
-  .key--presente {
-    background: var(--cor-casa);
-    color: var(--cor-texto-casa);
-  }
-
-  .key--certa    { --cor-casa: var(--cor-certa); }
-  .key--presente { --cor-casa: var(--cor-presente); }
-
-  .key--ausente {
-    opacity: 0.3;
-    box-shadow: none;
-  }
+  /* As teclas não têm cor: o jogo não diz quais letras estão na palavra. */
 
   .regras {
     @apply flex w-full max-w-md flex-col gap-2 rounded-2xl p-4 text-sm lg:max-w-64;
@@ -179,6 +166,7 @@
 
   .regras-casa {
     @apply inline-block size-4 shrink-0 rounded;
+    background: var(--cor-casa);
   }
 
   .regras-sinal {
@@ -192,6 +180,11 @@
 
   .regras-exemplo {
     @apply block text-xs opacity-60;
+  }
+
+  .regras-dica {
+    @apply mt-1 rounded-lg p-2 text-xs;
+    background: color-mix(in oklab, var(--cor-elm) 12%, transparent);
   }
 
   .game-status {
@@ -220,12 +213,46 @@
     box-shadow: 0 10px 30px -12px color-mix(in oklab, black 35%, transparent);
   }
 
+  /* Uma linha do tabuleiro: as 5 letras e, ao lado, a contagem. */
+  .linha {
+    @apply flex items-center gap-3;
+  }
+
   .row {
     @apply grid grid-cols-5 gap-2;
   }
 
+  /* Os três quadrados da contagem: quantas letras no lugar certo (verde),
+     em outro lugar (amarelo) e fora da palavra (vermelho). */
+  .contagem {
+    @apply flex gap-1;
+  }
+
+  .contagem-casa {
+    @apply flex items-center justify-center font-extrabold;
+    width: calc(var(--tamanho-casa) * 0.62);
+    height: calc(var(--tamanho-casa) * 0.62);
+    border-radius: calc(var(--raio-casa) * 0.75);
+    font-size: calc(var(--tamanho-casa) * 0.36);
+    background: var(--cor-casa);
+    color: var(--cor-texto-casa);
+  }
+
+  .contagem-casa--certa    { --cor-casa: var(--cor-certa); }
+  .contagem-casa--presente { --cor-casa: var(--cor-presente); }
+  .contagem-casa--ausente  { --cor-casa: var(--cor-ausente); }
+
+  .contagem .contagem-casa:not(.contagem-casa--vazia) {
+    animation: surgir calc(300ms * var(--velocidade)) ease-out both;
+  }
+
+  .contagem-casa--vazia {
+    background: transparent;
+    border: 2px dashed var(--borda-casa);
+  }
+
   .tile {
-    @apply flex items-center justify-center text-3xl font-bold uppercase select-none;
+    @apply flex items-center justify-center text-2xl font-bold uppercase select-none;
     width: var(--tamanho-casa);
     height: var(--tamanho-casa);
     border-radius: var(--raio-casa);
@@ -236,6 +263,30 @@
   .tile--preenchida {
     border-color: var(--borda-preenchida);
     animation: pulo-letra calc(120ms * var(--velocidade)) ease-out;
+  }
+
+  /* Tentativa já conferida: as letras ficam sem cor nenhuma. */
+  .tile--conferida {
+    border-color: var(--borda-preenchida);
+    background: color-mix(in oklab, var(--color-base-content) 8%, var(--color-base-100));
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 80ms ease;
+  }
+
+  .tile--conferida:hover {
+    border-color: var(--color-base-content);
+  }
+
+  .tile--conferida:active {
+    transform: scale(0.94);
+  }
+
+  /* Anotação do jogador (clique na letra): pinta a casa com a cor que ele
+     escolheu. Vem depois de .tile--conferida para ganhar dela. */
+  .tile--marca {
+    background: var(--cor-casa);
+    border-color: var(--cor-casa);
+    color: var(--cor-texto-casa);
   }
 
   .tile--certa    { --cor-casa: var(--cor-certa); }

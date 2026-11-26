@@ -10,6 +10,7 @@
 :- use_module(library(plunit)).
 :- use_module(jogo).
 :- use_module(palavras).
+:- use_module(flexao).
 :- encoding(utf8).
 
 :- begin_tests(retorno).
@@ -40,6 +41,15 @@ test(amarela_gasta_a_letra,
 test(verde_antes_de_amarela,
      true(Cores == [ausente,ausente,ausente,ausente,certa])) :-
     retorno([o,o,o,o,o], [t,e,r,m,o], Cores).
+
+% O exemplo do enunciado: PASTA contra CASPA. Só a contagem sai do Prolog.
+test(contagem_pasta_caspa, true(N == [3, 1, 1])) :-
+    retorno([p,a,s,t,a], [c,a,s,p,a], Cores),
+    contagem(Cores, N).
+
+test(contagem_letra_repetida, true(N == [3, 0, 2])) :-
+    retorno([t,e,r,r,a], [t,e,r,m,o], Cores),
+    contagem(Cores, N).
 
 :- end_tests(retorno).
 
@@ -83,7 +93,53 @@ test(infinitivo_vale) :-
     assertion(once(palavra([a,n,d,a,r], _))),
     assertion(once(palavra([l,a,t,i,r], _))).
 
+% As respostas valem sempre, mesmo quando também são forma verbal:
+% "conta" é de contar, mas é uma palavra comum.
+test(resposta_vale_mesmo_flexionada) :-
+    assertion(flexionada([c,o,n,t,a])),
+    assertion(once(palavra([c,o,n,t,a], _))).
+
 :- end_tests(palavras).
+
+
+:- begin_tests(flexao).
+
+test(plural_simples) :-
+    assertion(flexao([c,a,s,a,s], [c,a,s,a], plural)).
+
+% Cada terminação de plural sabe recompor o singular.
+test(plurais_com_terminacao_propria) :-
+    assertion(flexao([l,u,z,e,s], [l,u,z], plural)),
+    assertion(flexao([t,r,e,n,s], [t,r,e,m], plural)),
+    assertion(flexao([a,z,u,i,s], [a,z,u,l], plural)),
+    assertion(flexao([l,e,o,e,s], [l,e,a,o], plural)).
+
+test(verbos_regulares) :-
+    assertion(flexao([f,a,l,e,i], [f,a,l,a,r], verbo)),
+    assertion(flexao([c,o,m,e,u], [c,o,m,e,r], verbo)),
+    assertion(flexao([p,e,n,s,a], [p,e,n,s,a,r], verbo)).
+
+% A grafia do radical muda antes de algumas terminações.
+test(grafia_do_radical) :-
+    assertion(flexao([f,u,j,a,m], [f,u,g,i,r], verbo)),   % g vira j
+    assertion(flexao([c,a,i,a,m], [c,a,i,r], verbo)).     % entra um i
+
+test(verbo_irregular) :-
+    assertion(flexao([p,o,s,s,o], [p,o,d,e,r], verbo)).
+
+% Uma palavra pode ter mais de uma análise: "casas" é plural de casa e
+% também "tu casas", de casar.
+test(varias_analises, true(Analises == [[c,a,s,a]-plural, [c,a,s,a,r]-verbo])) :-
+    findall(Base-Tipo, flexao([c,a,s,a,s], Base, Tipo), Analises).
+
+% "livro" parece "eu livro" (de livrar), mas tem plural: é substantivo.
+test(substantivo_em_o, fail) :-
+    flexao([l,i,v,r,o], _, verbo).
+
+test(infinitivo_nao_e_flexao, fail) :-
+    flexao([l,a,t,i,r], _, _).
+
+:- end_tests(flexao).
 
 
 :- begin_tests(partidas).
@@ -94,14 +150,15 @@ segredo_texto(Id, Texto) :-
     jogo:partida(Id, Segredo, _),
     once(resposta(Segredo, Texto)).
 
-% Seis palavras válidas diferentes do segredo, para perder de propósito.
-erradas(Id, Seis) :-
+% Dez palavras válidas diferentes do segredo, para perder de propósito.
+erradas(Id, Dez) :-
     segredo_texto(Id, Segredo),
     exclude(==(Segredo),
-            ["terra", "pouco", "lindo", "chuva", "bicho", "porta", "folha"],
+            ["terra", "pouco", "lindo", "chuva", "bicho", "porta", "folha",
+             "nuvem", "peixe", "praia", "festa"],
             Erradas),
-    length(Seis, 6),
-    append(Seis, _, Erradas).
+    length(Dez, 10),
+    append(Dez, _, Erradas).
 
 test(codigos_diferentes_e_aleatorios) :-
     novo_jogo(A),
@@ -109,10 +166,10 @@ test(codigos_diferentes_e_aleatorios) :-
     assertion(A \== B),
     assertion(atom_length(A, 36)).
 
-test(acertar_encerra_a_partida, true(Cores == [certa,certa,certa,certa,certa])) :-
+test(acertar_encerra_a_partida, true(Contagem == [5, 0, 0])) :-
     novo_jogo(Id),
     segredo_texto(Id, Texto),
-    jogar(Id, Texto, [_, Cores]),
+    jogar(Id, Texto, [_, Contagem]),
     assertion(\+ jogo:partida(Id, _, _)).
 
 test(palavra_fora_da_base_nao_gasta_tentativa) :-
@@ -144,9 +201,9 @@ test(nao_revela_antes_do_fim, true(R == negado)) :-
 
 test(perder_e_revelar) :-
     novo_jogo(Id),
-    erradas(Id, Seis),
+    erradas(Id, Dez),
     segredo_texto(Id, Segredo),
-    forall(member(P, Seis), jogar(Id, P, [_, _])),
+    forall(member(P, Dez), jogar(Id, P, [_, _])),
     jogar(Id, "lindo", Depois),
     assertion(Depois == encerrada),
     revelar(Id, [Revelada]),
@@ -161,10 +218,10 @@ test(partida_inexistente) :-
     assertion(R2 == inexistente).
 
 % O Id chega do Python como string; o fato guarda um átomo.
-test(id_como_string, true(Cores == [certa,certa,certa,certa,certa])) :-
+test(id_como_string, true(Contagem == [5, 0, 0])) :-
     novo_jogo(Id),
     atom_string(Id, IdTexto),
     segredo_texto(Id, Texto),
-    jogar(IdTexto, Texto, [_, Cores]).
+    jogar(IdTexto, Texto, [_, Contagem]).
 
 :- end_tests(partidas).

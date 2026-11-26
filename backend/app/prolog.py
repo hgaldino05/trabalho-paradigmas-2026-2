@@ -64,13 +64,14 @@ def novo_jogo() -> str:
     return janus.query_once("jogo:novo_jogo(Id)")["Id"]
 
 
-def jogar(jogo: str, palavra: str) -> tuple[str, list[str]]:
-    """Devolve a palavra como deve ser exibida e as cores de cada letra."""
+def jogar(jogo: str, palavra: str) -> tuple[str, list[int]]:
+    """Devolve a palavra como deve ser exibida e a contagem das cores:
+    [certas, presentes, ausentes]. A cor de cada letra nunca sai do Prolog."""
     resultado = janus.query_once(
         "jogo:jogar(Id, Texto, R)", {"Id": jogo, "Texto": palavra}
     )["R"]
-    exibicao, cores = _resultado("jogar/3", resultado)
-    return exibicao, cores
+    exibicao, contagem = _resultado("jogar/3", resultado)
+    return exibicao, contagem
 
 
 def revelar(jogo: str) -> str:

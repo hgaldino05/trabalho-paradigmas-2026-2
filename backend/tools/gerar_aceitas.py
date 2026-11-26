@@ -1,20 +1,27 @@
-"""Gera backend/prolog/aceitas.pl a partir da lista de palavras do IME-USP.
+"""Gera backend/prolog/aceitas.pl e lexico.pl a partir da lista do IME-USP.
 
 Fonte: "Lista de todas as palavras do português brasileiro", de Paulo
 Feofiloff (IME-USP), preparada a partir do Dicionário br.ispell de Ricardo
 Ueda Karpischek. Licença Creative Commons BY 4.0.
 https://www.ime.usp.br/~pf/dicios/
 
-Uso (na raiz do repositório), depois de baixar br-utf8.txt da página acima: python backend/tools/gerar_aceitas.py caminho/para/br-utf8.txt
+Uso (na raiz do repositório), depois de baixar br-utf8.txt da página acima:
 
-Este scriptsó precisa ser rodado de novo se a lista de respostas mudar muito ou em caso de troca de fonte.
+    python backend/tools/gerar_aceitas.py caminho/para/br-utf8.txt
 
-- entram as palavras de 5 letras, só com letras minúsculas (com acento ou ç); palavras com maiúscula são nomes próprios e ficam de fora;
-- palavras que já são respostas (palavras.pl) não se repetem aqui;
-- quando duas grafias viram as mesmas letras sem acento (abafa e abafá), fica uma só: para o jogador, elas são a mesma tentativa;
-- plurais e verbos conjugados ficam de fora (regra do jogo: verbo só no
-  infinitivo). O dicionário não diz a classe de cada palavra, então isso é
-  feito por regras aproximadas, descritas em `eh_plural` e `formas_verbais`.
+Este script só EXTRAI dados do dicionário; ele não decide o que é plural ou
+verbo conjugado. Quem decide é o Prolog (backend/prolog/flexao.pl), na hora
+da tentativa.
+
+- aceitas.pl: as palavras de 5 letras, só com letras minúsculas (com acento
+  ou ç); palavras com maiúscula são nomes próprios e ficam de fora. As que já
+  são respostas (palavras.pl) não se repetem, e quando duas grafias viram as
+  mesmas letras sem acento (abafa e abafá), fica uma só.
+- lexico.pl: as palavras de outros tamanhos que flexao.pl consulta para
+  analisar uma palavra de 5 letras: as de 3 e 4 letras (singulares, como
+  casa e luz, e infinitivos curtos, como amar), e as de 6 letras terminadas
+  em -os (plurais, como livros) ou em -ar, -er e -ir (infinitivos, como
+  pensar).
 """
 
 import re
@@ -23,22 +30,26 @@ import unicodedata
 from pathlib import Path
 
 PROLOG = Path(__file__).resolve().parent.parent / "prolog"
-SO_LETRAS = re.compile(r"^[a-záàâãéêíóôõúüç]{5}$")
+SO_LETRAS = re.compile(r"^[a-záàâãéêíóôõúüç]+$")
 RESPOSTA = re.compile(r'resposta\(\[([a-z,]+)\], "([^"]+)"\)')
 
-CABECALHO = """\
-/*  aceitas.pl: palavras que valem como tentativa, mas nunca são sorteadas.
-
-    GERADO por backend/tools/gerar_aceitas.py. Não edite à mão: rode o
-    script de novo. As palavras sorteadas (resposta/2) ficam em palavras.pl.
-
+FONTE = """\
     Fonte: "Lista de todas as palavras do português brasileiro", de Paulo
     Feofiloff (IME-USP), preparada a partir do Dicionário br.ispell de
     Ricardo Ueda Karpischek. Licença Creative Commons BY 4.0.
     https://www.ime.usp.br/~pf/dicios/
+"""
 
-    Plurais (casas) e verbos conjugados (falei) foram tirados: verbo só vale
-    no infinitivo. O filtro é aproximado; veja o script.
+CABECALHO_ACEITAS = f"""\
+/*  aceitas.pl: palavras de 5 letras do dicionário que não são respostas.
+
+    GERADO por backend/tools/gerar_aceitas.py. Não edite à mão: rode o
+    script de novo. As palavras sorteadas (resposta/2) ficam em palavras.pl.
+
+{FONTE}
+    Aqui estão TODAS as palavras de 5 letras do dicionário, inclusive
+    plurais (casas) e verbos conjugados (falei). Quem os recusa é o Prolog:
+    palavra/2, em jogo.pl, usa a análise de flexao.pl.
 */
 
 :- module(aceitas, [aceita/2]).
@@ -46,42 +57,23 @@ CABECALHO = """\
 
 """
 
-# Terminações regulares, sem acento (a comparação é feita sem acento).
-# Ficam de fora infinitivo e particípio, que também funcionam como
-# substantivo ou adjetivo. A terminação "-a" dos verbos em -ar (ele pensa,
-# ele chora) entra: alguns substantivos iguais a ela saem junto (baixa,
-# ginga), mas os comuns (conta, falta, busca) estão em palavras.pl, que
-# este filtro não toca.
-TERMINACOES = {
-    "ar": "o a e ai ei as am es em aste ou amos ais astes aram ava avas avamos aveis avam "
-    "ara aras aramos areis arei arao aria arias ariamos arieis ariam emos eis "
-    "asse asses assemos asseis assem armos ardes arem ando",
-    "er": "o a e ei es em as am i este eu emos eis estes eram ia ias iamos ieis iam "
-    "era eras eramos ereis erei erao eria erias eriamos erieis eriam amos ais "
-    "esse esses essemos esseis essem ermos erdes erem endo",
-    "ir": "o a e es em as am i iste iu imos is istes iram ia ias iamos ieis iam "
-    "ira iras iramos ireis irei irao iria irias iriamos irieis iriam amos ais "
-    "isse isses issemos isseis issem irmos irdes irem indo",
-}
+CABECALHO_LEXICO = f"""\
+/*  lexico.pl: palavras de outros tamanhos, consultadas por flexao.pl.
 
-# Verbos curtos de verdade. Outros infinitivos de 3 letras (bar, mar, par)
-# são substantivos e gerariam formas falsas.
-VERBOS_CURTOS = {"ler", "ter", "ver", "dar", "ser", "rir", "vir", "crer"}
+    GERADO por backend/tools/gerar_aceitas.py. Não edite à mão.
 
-# Formas irregulares comuns que as regras acima não geram.
-IRREGULARES = set(
-    """
-    somos sois foram fomos foste fosse sejam sejas seria serao eram estou estao
-    estas estava esteve estive tenho temos tinha tinham teria terao terei tiver
-    tenha tenham vamos vimos vinha vindo venho vens venha vemos veria iriam irao
-    fazem fazia fizer fazes faria farao disse dizem digam digas diria dirao
-    posso pode podem podia puder possa quero quer querem quis quiser trago
-    traga trouxe ponho pomos poem soube sabem sabia saiba vejo vejam viram
-    vendo dando deram demos dava davam desse dessem derem houve havia hajam
-    sendo pondo rindo tendo caibo caiba coube depoe depus traio traia saio
-    saem fujo fujas fuja odeio rirao riria
-    """.split()
-)
+{FONTE}
+    Para saber se "casas" é plural, flexao.pl precisa saber se "casa"
+    existe; para saber se "pensa" é verbo conjugado, se "pensar" existe.
+    Este arquivo tem essas palavras: as de 3 e 4 letras, e as de 6 letras
+    terminadas em -os, -ar, -er ou -ir. As de 5 letras estão em palavras.pl
+    e aceitas.pl.
+*/
+
+:- module(lexico, [vocabulo/1]).
+:- encoding(utf8).
+
+"""
 
 
 def sem_acento(palavra: str) -> str:
@@ -95,71 +87,14 @@ def escolher_grafia(grafias: list[str]) -> str:
     return min(grafias, key=lambda g: (g != sem_acento(g), g))
 
 
-def singulares(palavra: str) -> list[str]:
-    """Os singulares possíveis de uma palavra terminada em s."""
-    if not palavra.endswith("s"):
-        return []
-    opcoes = [palavra[:-1]]  # casas -> casa
-    if palavra.endswith("es"):
-        opcoes.append(palavra[:-2])  # luzes -> luz
-    if palavra.endswith("ns"):
-        opcoes.append(palavra[:-2] + "m")  # trens -> trem
-    if palavra.endswith(("oes", "aes")):
-        opcoes.append(palavra[:-3] + "ao")  # leões -> leão
-    if palavra.endswith(("ais", "eis", "ois", "uis")):
-        opcoes.append(palavra[:-2] + "l")  # azuis -> azul
-    if palavra.endswith("eis"):
-        opcoes.append(palavra[:-3] + "il")  # fósseis -> fóssil
-    if palavra.endswith("is"):
-        opcoes.append(palavra[:-1] + "l")  # fuzis -> fuzil
-    return opcoes
+def vai_para_o_lexico(letras: str) -> bool:
+    if len(letras) in (3, 4):
+        return True
+    return len(letras) == 6 and letras.endswith(("os", "ar", "er", "ir"))
 
 
-def eh_plural(palavra: str, dicionario: set[str]) -> bool:
-    """Plural é a palavra em -s cujo singular também está no dicionário."""
-    return any(s in dicionario and s != palavra for s in singulares(palavra))
-
-
-def conjugar(radical: str, fim: str, conjugacao: str) -> set[str]:
-    """Junta radical e terminação, com os acertos de grafia mais comuns."""
-    formas = {radical + fim}
-    if conjugacao == "ar" and fim[0] == "e":
-        if radical.endswith("c"):  # ficar -> fiquei (e alçar -> alcei, que fica igual)
-            formas.add(radical[:-1] + "qu" + fim)
-        if radical.endswith("g"):  # pagar -> paguei
-            formas = {radical + "u" + fim}
-    if conjugacao == "ar" and radical.endswith("e") and fim in ("o", "a", "as", "am", "e", "es", "em"):
-        formas.add(radical + "i" + fim)  # passear -> passeio
-    if conjugacao in ("er", "ir") and fim[0] in "ao":
-        if radical.endswith("g"):  # fugir -> fujo
-            formas = {radical[:-1] + "j" + fim}
-        elif radical.endswith("gu"):  # seguir -> sigo (só o gu)
-            formas = {radical[:-1] + fim}
-        elif radical.endswith(("a", "o", "u")):  # cair -> caio
-            formas.add(radical + "i" + fim)
-    return formas
-
-
-def formas_verbais(dicionario: set[str]) -> set[str]:
-    """Conjuga, pelas regras regulares, todo infinitivo do dicionário."""
-    formas = set(IRREGULARES)
-    for infinitivo in dicionario:
-        if len(infinitivo) < 4 and infinitivo not in VERBOS_CURTOS:
-            continue
-        conjugacao = infinitivo[-2:]
-        if conjugacao in TERMINACOES:
-            for fim in TERMINACOES[conjugacao].split():
-                formas |= conjugar(infinitivo[:-2], fim, conjugacao)
-    return formas
-
-
-def eh_verbo_conjugado(palavra: str, verbais: set[str], dicionario: set[str]) -> bool:
-    if palavra.endswith(("amo", "emo", "imo")) and palavra + "s" in verbais:
-        return True  # "amamo", pedaço de "amamo-lo" que o dicionário lista
-    if palavra not in verbais:
-        return False
-    # "livro" parece "eu livro", mas tem plural (livros): é substantivo.
-    return not (palavra.endswith("o") and palavra + "s" in dicionario)
+def lista(letras: str) -> str:
+    return "[" + ",".join(letras) + "]"
 
 
 def main(caminho: str) -> None:
@@ -169,30 +104,24 @@ def main(caminho: str) -> None:
     }
 
     todas = [linha.strip() for linha in Path(caminho).read_text(encoding="utf-8").splitlines()]
-    dicionario = {sem_acento(p) for p in todas if p and p.islower()}
-    verbais = formas_verbais(dicionario)
-
     grupos: dict[str, list[str]] = {}
     for palavra in todas:
         if SO_LETRAS.match(palavra):
             grupos.setdefault(sem_acento(palavra), []).append(palavra)
 
-    plurais = conjugados = 0
-    linhas = []
-    for letras, grafias in sorted(grupos.items()):
-        if letras in respostas:
-            continue
-        if eh_plural(letras, dicionario):
-            plurais += 1
-        elif eh_verbo_conjugado(letras, verbais, dicionario):
-            conjugados += 1
-        else:
-            linhas.append(f'aceita([{",".join(letras)}], "{escolher_grafia(grafias)}").')
+    aceitas = [
+        f'aceita({lista(letras)}, "{escolher_grafia(grafias)}").'
+        for letras, grafias in sorted(grupos.items())
+        if len(letras) == 5 and letras not in respostas
+    ]
+    lexico = [f"vocabulo({lista(letras)})." for letras in sorted(grupos) if vai_para_o_lexico(letras)]
 
     with open(PROLOG / "aceitas.pl", "w", encoding="utf-8", newline="\n") as saida:
-        saida.write(CABECALHO + "\n".join(linhas) + "\n")
-    print(f"{len(linhas)} palavras aceitas gravadas em {PROLOG / 'aceitas.pl'}")
-    print(f"fora: {plurais} plurais e {conjugados} verbos conjugados")
+        saida.write(CABECALHO_ACEITAS + "\n".join(aceitas) + "\n")
+    with open(PROLOG / "lexico.pl", "w", encoding="utf-8", newline="\n") as saida:
+        saida.write(CABECALHO_LEXICO + "\n".join(lexico) + "\n")
+    print(f"{len(aceitas)} palavras de 5 letras gravadas em aceitas.pl")
+    print(f"{len(lexico)} palavras de outros tamanhos gravadas em lexico.pl")
 
 
 if __name__ == "__main__":

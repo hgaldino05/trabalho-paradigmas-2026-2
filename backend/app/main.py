@@ -13,7 +13,7 @@ Rodar em modo de desenvolvimento (recarrega ao salvar):
 Documentação interativa: http://localhost:8000/docs
 """
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -23,8 +23,7 @@ from app import prolog
 app = FastAPI(title="Telmo (Prolog + Elm)")
 
 Palavra = Annotated[str, Field(min_length=5, max_length=5)]
-Cor = Literal["certa", "presente", "ausente"]
-Cores = Annotated[list[Cor], Field(min_length=5, max_length=5)]
+Quantidade = Annotated[int, Field(ge=0, le=5)]
 
 
 class NovoResponse(BaseModel):
@@ -40,9 +39,18 @@ class TentativaRequest(BaseModel):
     palavra: Palavra
 
 
+class Contagem(BaseModel):
+    """Quantas letras da tentativa caíram em cada cor. O jogo nunca diz
+    quais letras são: só quantas."""
+
+    certas: Quantidade  # na palavra, na posição certa
+    presentes: Quantidade  # na palavra, em outra posição
+    ausentes: Quantidade  # fora da palavra
+
+
 class TentativaResponse(BaseModel):
     palavra: str  # como deve ser exibida, com acentos
-    cores: Cores
+    contagem: Contagem
 
 
 class PalavraResponse(BaseModel):
@@ -64,7 +72,7 @@ def novo() -> NovoResponse:
 @app.post("/api/tentativa")
 def tentativa(request: TentativaRequest) -> TentativaResponse:
     try:
-        palavra, cores = prolog.jogar(request.jogo, request.palavra)
+        palavra, [certas, presentes, ausentes] = prolog.jogar(request.jogo, request.palavra)
     except prolog.PalavraInvalida:
         raise HTTPException(status_code=422, detail=PALAVRA_INVALIDA) from None
     except prolog.PalavraRepetida:
@@ -73,7 +81,10 @@ def tentativa(request: TentativaRequest) -> TentativaResponse:
         raise HTTPException(status_code=404, detail=PARTIDA_INEXISTENTE) from None
     except prolog.PartidaEncerrada:
         raise HTTPException(status_code=409, detail=PARTIDA_ENCERRADA) from None
-    return TentativaResponse(palavra=palavra, cores=cores)
+    return TentativaResponse(
+        palavra=palavra,
+        contagem=Contagem(certas=certas, presentes=presentes, ausentes=ausentes),
+    )
 
 
 @app.post("/api/revelar")

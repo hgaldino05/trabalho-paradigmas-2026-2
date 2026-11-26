@@ -12,7 +12,7 @@ from app.main import app
 
 client = TestClient(app)
 
-TUDO_CERTO = ["certa"] * 5
+TUDO_CERTO = {"certas": 5, "presentes": 0, "ausentes": 0}
 
 
 def novo() -> str:
@@ -42,7 +42,7 @@ def test_acertar_a_palavra():
     palavra = segredo(jogo)
     response = tentar(jogo, palavra)
     assert response.status_code == 200
-    assert response.json() == {"palavra": palavra, "cores": TUDO_CERTO}
+    assert response.json() == {"palavra": palavra, "contagem": TUDO_CERTO}
 
 
 def test_tentativa_sem_acento_volta_com_acento():
@@ -83,8 +83,10 @@ def test_nao_revela_no_meio_da_partida():
 def test_perder_revela_a_palavra_e_encerra():
     jogo = novo()
     palavra = segredo(jogo)
-    erradas = [p for p in ["terra", "pouco", "lindo", "chuva", "bicho", "porta", "folha"] if p != palavra]
-    for p in erradas[:6]:
+    candidatas = ["terra", "pouco", "lindo", "chuva", "bicho", "porta", "folha",
+                  "nuvem", "peixe", "praia", "festa"]
+    erradas = [p for p in candidatas if p != palavra]
+    for p in erradas[:10]:
         assert tentar(jogo, p).status_code == 200
     assert tentar(jogo, erradas[0]).status_code == 409
     response = client.post("/api/revelar", json={"jogo": jogo})
@@ -104,3 +106,14 @@ def test_palavra_repetida_e_recusada():
     response = tentar(jogo, palavra)
     assert response.status_code == 422
     assert response.json()["detail"] == "Você já tentou essa palavra."
+
+
+def test_tentativa_so_informa_a_contagem():
+    # O jogo diz quantas letras caíram em cada cor, nunca quais.
+    response = tentar(novo(), "terra")
+    assert response.status_code == 200
+    corpo = response.json()
+    assert set(corpo) == {"palavra", "contagem"}
+    contagem = corpo["contagem"]
+    assert set(contagem) == {"certas", "presentes", "ausentes"}
+    assert sum(contagem.values()) == 5

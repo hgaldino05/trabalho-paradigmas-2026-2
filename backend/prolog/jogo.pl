@@ -7,6 +7,10 @@
       - presente  = a letra está na palavra, em outra posição;
       - ausente= a letra não está na palavra (ou já houve tentativa com ela).
 
+    O jogador NÃO vê essas cores letra por letra. O jogo só conta quantas
+    letras caíram em cada cor (contagem/2): por exemplo, PASTA contra CASPA
+    dá 3 certas, 1 presente e 1 ausente, sem dizer quais.
+
     Cada partida em andamento é um fato dinâmico partida/3, guardado aqui no
     Prolog. A palavra secreta nunca sai do servidor antes do fim.
 
@@ -14,11 +18,13 @@
 
         $ swipl backend/prolog/jogo.pl
         ?- retorno([t,e,r,r,a], [t,e,r,m,o], Cores).
+        ?- retorno([p,a,s,t,a], [c,a,s,p,a], Cores), contagem(Cores, N).
         ?- novo_jogo(Id), jogar(Id, "terra", R).
 */
 
 :- module(jogo,
           [ retorno/3,
+            contagem/2,
             palavra/2,
             texto_letras/2,
             % Interface usada pelo Python (backend/app/prolog.py):
@@ -29,18 +35,19 @@
 
 :- encoding(utf8).
 
-:- use_module(library(apply)).    % maplist/4, foldl/6, convlist/3
+:- use_module(library(apply)).    % maplist/4, foldl/6, convlist/3, include/3
 :- use_module(library(lists)).    % selectchk/3, nth0/3, member/2
 :- use_module(library(random)).   % random_member/2
 :- use_module(library(uuid)).     % uuid/2: código aleatório da partida
 :- use_module(palavras).          % resposta/2: palavras sorteadas
-:- use_module(aceitas).           % aceita/2: outras tentativas válidas
+:- use_module(aceitas).           % aceita/2: outras palavras do dicionário
+:- use_module(flexao).            % flexionada/1: plural ou verbo conjugado
 
 
 /* 
    # RETORNO DE UMA TENTATIVA
    Com o segredo `termo` e a tentativa `terra`, só o PRIMEIRO r fica verde. 
-   O segundo fica cinza, porque `termo` tem um r só e ele já foi usado.
+   O segundo é ausente, porque `termo` tem um r só e ele já foi usado.
 
    Por isso o retorno é feito em duas passadas:
      1. marca as letras certas na posição certa (verdes);
@@ -85,15 +92,31 @@ colore(livre(_), Letra, Cor, Sobra0, Sobra) :-
         Sobra = Sobra0
     ).
 
+%!  contagem(+Cores, -Contagem) is det.
+%
+%   Contagem é [Certas, Presentes, Ausentes]: quantas letras caíram em cada
+%   cor. É só isso que o jogador fica sabendo de cada tentativa.
+
+contagem(Cores, [Certas, Presentes, Ausentes]) :-
+    quantas(certa, Cores, Certas),
+    quantas(presente, Cores, Presentes),
+    quantas(ausente, Cores, Ausentes).
+
+quantas(Cor, Cores, N) :-
+    include(==(Cor), Cores, DessaCor),
+    length(DessaCor, N).
+
 
 
 /* # PALAVRAS E TEXTO */
 %!  palavra(?Letras, ?Texto) is nondet.
 %
-%   Toda palavra que vale como tentativa: as respostas e as aceitas.
+%   Toda palavra que vale como tentativa: as respostas, sempre, e as
+%   outras palavras do dicionário que não são plural nem verbo conjugado
+%   (a análise está em flexao.pl).
 
 palavra(Letras, Texto) :- resposta(Letras, Texto).
-palavra(Letras, Texto) :- aceita(Letras, Texto).
+palavra(Letras, Texto) :- aceita(Letras, Texto), \+ flexionada(Letras).
 
 %!  texto_letras(+Texto, -Letras) is det.
 %
@@ -143,7 +166,7 @@ acento('ç', c).
 :- dynamic partida/3.
 
 %   Tentativas por partida. Precisa bater com `maxTentativas` em Jogo.elm.
-max_tentativas(6).
+max_tentativas(10).
 
 
 
@@ -168,7 +191,8 @@ novo_jogo(Id) :-
 
 %!  jogar(+Id, +Texto, -Resultado) is det.
 %
-%   Resultado é [TextoDaPalavra, Cores]; ou um átomo:
+%   Resultado é [TextoDaPalavra, [Certas, Presentes, Ausentes]], só a
+%   contagem das cores, nunca a cor de cada letra; ou um átomo:
 %     invalida     Texto não está na base de palavras (não gasta tentativa);
 %     repetida     Texto já foi tentado nesta partida (não gasta tentativa);
 %     encerrada    a partida já foi perdida;
@@ -195,7 +219,8 @@ avancar(jogando(Tentadas), Id, Segredo, Tentativa, Resultado) :-
         retorno(Tentativa, Segredo, Cores),
         retract(partida(Id, Segredo, _)),
         depois_da_jogada(Cores, [Tentativa | Tentadas], Id, Segredo),
-        Resultado = [Exibicao, Cores]
+        contagem(Cores, Contagem),
+        Resultado = [Exibicao, Contagem]
     ).
 
 %   Ganhou: a partida acaba e o fato some. Esgotou as tentativas: fica
